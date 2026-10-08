@@ -1,0 +1,91 @@
+name: Build BabyGirl VST3 & Standalone Emulator
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ windows-latest, macos-latest, ubuntu-latest ]
+        include:
+          - os: windows-latest
+            artifact_name: BabyGirl-Windows-VST3-and-Exe
+          - os: macos-latest
+            artifact_name: BabyGirl-macOS-VST3-and-App
+          - os: ubuntu-latest
+            artifact_name: BabyGirl-Linux-VST3-and-Standalone
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libjack-jackd2-dev \
+            ladspa-sdk libcurl4-openssl-dev libfreetype6-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxcursor-dev \
+            libxext-dev libxinerama-dev libxrandr-dev libxrender-dev \
+            mesa-common-dev webkit2gtk-4.0 libglu1-mesa-dev
+
+      - name: Configure CMake
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          -DJUCE_BUILD_EXTRAS=OFF
+          -DJUCE_BUILD_EXAMPLES=OFF
+
+      - name: Build BabyGirl VST3 & Standalone Player
+        run: cmake --build build --config Release --parallel
+
+      - name: Package Windows Artifacts (BabyGirl.vst3 & BabyGirl.exe)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir dist
+          if (Test-Path "build/BabyGirl_artefacts/Release/VST3") {
+            Copy-Item -Recurse "build/BabyGirl_artefacts/Release/VST3" "dist/VST3"
+          }
+          if (Test-Path "build/BabyGirl_artefacts/Release/Standalone") {
+            Copy-Item -Recurse "build/BabyGirl_artefacts/Release/Standalone" "dist/Standalone"
+          }
+          Get-ChildItem -Recurse -Include *.vst3, *.exe build/ | Copy-Item -Destination dist/ -ErrorAction SilentlyContinue
+
+      - name: Package macOS Artifacts (BabyGirl.vst3 & BabyGirl.app)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist
+          find build -name "*.vst3" -exec cp -R {} dist/ \;
+          find build -name "*.app" -exec cp -R {} dist/ \;
+
+      - name: Package Linux Artifacts
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          find build -name "*.vst3" -exec cp -R {} dist/ \;
+          find build -type f -perm /111 -name "BabyGirl" -exec cp {} dist/ \;
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/
+          if-no-files-found: warn
+
+      - name: Release Assets on Tag
+        if: startsWith(github.ref, 'refs/tags/v') && runner.os == 'Windows'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
