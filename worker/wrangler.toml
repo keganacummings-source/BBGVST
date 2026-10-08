@@ -1,0 +1,7 @@
+name = "babygirl-dream-api"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+
+[vars]
+ENVIRONMENT = "production"
+# DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/..."
